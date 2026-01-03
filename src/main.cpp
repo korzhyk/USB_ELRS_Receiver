@@ -60,11 +60,7 @@ typedef enum {
 #define LED_COLOR_BLUE      0x000010
 #define LED_COLOR_YELLOW    0x100800
 #define LED_COLOR_ORANGE    0x080800
-#define LED_COLOR_CYAN      0x100010
-#define LED_COLOR_PURPLE    0x051005
-#define LED_COLOR_WHITE     0x101010
 #define LED_COLOR_DIM_RED   0x000400
-#define LED_COLOR_DIM_GREEN 0x040000
 
 typedef enum {
   CRSF_ADDRESS_BROADCAST = 0x00,
@@ -329,6 +325,7 @@ void uart()
 #if LED_ENABLED
     in_firmware_update = true;
     led_status = LED_STATUS_FIRMWARE_UPDATE;
+    led_set_color(LED_COLOR_BLUE);  // Set blue for firmware update mode
 #endif
 
     t = millis();
@@ -341,6 +338,10 @@ void uart()
         Serial.write(CRSF_SERIAL.read());  // Send receiver data to PC
         t = millis();
       }
+#if LED_ENABLED
+      // Update LED during firmware update to show activity
+      led_update();
+#endif
     } while (millis() - t < 2000);     // When data stops coming in, it's over
 
 #if LED_ENABLED
@@ -452,7 +453,7 @@ void led_update()
         color = blink_state ? LED_COLOR_RED : LED_COLOR_OFF;
         break;
       case LED_STATUS_FIRMWARE_UPDATE:
-        color = blink_state ? LED_COLOR_BLUE : LED_COLOR_CYAN;
+        color = blink_state ? LED_COLOR_BLUE : LED_COLOR_YELLOW;
         break;
       case LED_STATUS_ERROR:
         color = blink_state ? LED_COLOR_RED : LED_COLOR_OFF;
