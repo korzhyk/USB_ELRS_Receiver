@@ -1,5 +1,18 @@
 #include <Arduino.h>
-#include <Adafruit_TinyUSB.h> 
+#include <Adafruit_TinyUSB.h>
+
+// WS2812 RGB LED support (WAVESHARE_RP2040 only)
+#if defined(ARDUINO_WAVESHARE_RP2040_ZERO)
+  #include "ws2812.pio.h"
+  #define WS2812_PIN 16  // RGB LED pin on WAVESHARE_RP2040
+  #define LED_ENABLED 1
+#elif defined(ARDUINO_SEEED_XIAO_RP2040)
+  #include "ws2812.pio.h"
+  #define WS2812_PIN 12  // RGB LED pin on XIAO_RP2040
+  #define LED_ENABLED 1
+#else
+  #define LED_ENABLED 0
+#endif
 
 // USB HID report descriptor
 // Specifies the structure of the gamepad data (for radio receiver 
@@ -27,6 +40,31 @@
 #define CRSF_BAUDRATE 420000
 #define CRSF_MAX_PACKET_LEN 64
 #define CRSF_NUM_CHANNELS 16
+
+// LED Status States
+typedef enum {
+  LED_STATUS_BOOT = 0,           // Yellow - Booting/initializing
+  LED_STATUS_USB_WAIT,           // Yellow pulse - USB mounted, waiting for CRSF
+  LED_STATUS_ACTIVE,             // Green - Active link with valid data
+  LED_STATUS_STALE,              // Orange - No recent frames
+  LED_STATUS_NO_SIGNAL,          // Red - No CRSF signal
+  LED_STATUS_USB_SUSPENDED,      // Red dim - USB suspended
+  LED_STATUS_FIRMWARE_UPDATE,    // Blue pulse - Firmware update mode
+  LED_STATUS_ERROR               // Red fast blink - Error/invalid frames
+} led_status_e;
+
+// LED Color definitions (GRB format for WS2812)
+#define LED_COLOR_OFF       0x000000
+#define LED_COLOR_RED       0x001000
+#define LED_COLOR_GREEN     0x100000
+#define LED_COLOR_BLUE      0x000010
+#define LED_COLOR_YELLOW    0x100800
+#define LED_COLOR_ORANGE    0x080800
+#define LED_COLOR_CYAN      0x100010
+#define LED_COLOR_PURPLE    0x051005
+#define LED_COLOR_WHITE     0x101010
+#define LED_COLOR_DIM_RED   0x000400
+#define LED_COLOR_DIM_GREEN 0x040000
 
 typedef enum {
   CRSF_ADDRESS_BROADCAST = 0x00,
@@ -97,6 +135,16 @@ uint8_t frameSize = 0;
 int datardyf = 0;        // Data read to send to USB
 uint32_t gaptime;        // For bus delimiter measurement
 
+// LED status tracking
+#if LED_ENABLED
+PIO pio = pio0;
+uint sm = 0;
+led_status_e led_status = LED_STATUS_BOOT;
+uint32_t last_valid_frame_time = 0;
+uint32_t led_update_time = 0;
+bool in_firmware_update = false;
+#endif
+
 #if defined(DEBUG)
 uint32_t time_m;         // Interval time (for debug)
 void debug_out();
@@ -106,8 +154,20 @@ void crsf();
 void crsfdecode();
 void uart();
 
+#if LED_ENABLED
+void led_init();
+void led_set_color(uint32_t color);
+void led_update();
+#endif
+
 void setup()
 {
+#if LED_ENABLED
+  // Initialize LED first to show boot status
+  led_init();
+  led_set_color(LED_COLOR_YELLOW);  // Boot status
+#endif
+
   // USB HID Device Settings
   usb_hid.setPollInterval(2);
   usb_hid.setReportDescriptor(desc_hid_report, sizeof(desc_hid_report));
@@ -128,6 +188,12 @@ void setup()
 #endif
   CRSF_SERIAL.begin(CRSF_BAUDRATE, SERIAL_8N1);
 
+#if LED_ENABLED
+  // USB mounted, waiting for CRSF data
+  led_status = LED_STATUS_USB_WAIT;
+  last_valid_frame_time = millis();
+#endif
+
 #if defined(DEBUG)
   time_m = micros();  // For interval measurement
 #endif
@@ -138,6 +204,11 @@ void loop()
   // WAke up host if in suspend mode and REMOTE_WAKEUP feature by host
   if (USBDevice.suspended()) {
     USBDevice.remoteWakeup();
+#if LED_ENABLED
+    if (led_status != LED_STATUS_USB_SUSPENDED && led_status != LED_STATUS_FIRMWARE_UPDATE) {
+      led_status = LED_STATUS_USB_SUSPENDED;
+    }
+#endif
   }
   crsf();           // Process CRSF
   uart();           // UART communication processing (for firmware rewriting)
@@ -150,6 +221,37 @@ void loop()
     }
     datardyf = 0;  // Clear the flag after transmission
   }
+
+#if LED_ENABLED
+  // Update LED status based on link quality
+  if (!in_firmware_update) {
+    uint32_t current_time = millis();
+    uint32_t time_since_frame = current_time - last_valid_frame_time;
+
+    if (USBDevice.suspended()) {
+      if (led_status != LED_STATUS_USB_SUSPENDED) {
+        led_status = LED_STATUS_USB_SUSPENDED;
+      }
+    } else if (time_since_frame < 100) {
+      // Active link - received frame in last 100ms
+      if (led_status != LED_STATUS_ACTIVE) {
+        led_status = LED_STATUS_ACTIVE;
+      }
+    } else if (time_since_frame < 1000) {
+      // Stale link - no frame for 100-1000ms
+      if (led_status != LED_STATUS_STALE) {
+        led_status = LED_STATUS_STALE;
+      }
+    } else {
+      // No signal - no frame for >1 second
+      if (led_status != LED_STATUS_NO_SIGNAL) {
+        led_status = LED_STATUS_NO_SIGNAL;
+      }
+    }
+  }
+
+  led_update();  // Update LED based on current status
+#endif
 }
 
 //CRSF receive process
@@ -207,6 +309,11 @@ void crsfdecode()
       if (((rxbuf[23] >> 5 | rxbuf[24] << 3) & 0x07ff) > 0x3ff) gp.sw |= 0x80;
 
       datardyf = 1;  // set data ready flag
+
+#if LED_ENABLED
+      // Update timestamp on successful frame decode
+      last_valid_frame_time = millis();
+#endif
     }
   }
 }
@@ -219,6 +326,11 @@ void uart()
 
   // When data comes from the PC, it is determined to be in firmware update mode
   if (Serial.available()) {
+#if LED_ENABLED
+    in_firmware_update = true;
+    led_status = LED_STATUS_FIRMWARE_UPDATE;
+#endif
+
     t = millis();
     do {
       while (Serial.available()) {     // When data comes in from the PC
@@ -230,6 +342,12 @@ void uart()
         t = millis();
       }
     } while (millis() - t < 2000);     // When data stops coming in, it's over
+
+#if LED_ENABLED
+    in_firmware_update = false;
+    led_status = LED_STATUS_USB_WAIT;
+    last_valid_frame_time = millis();  // Reset timer after firmware update
+#endif
   }
 }
 
@@ -253,5 +371,98 @@ void debug_out()
   Serial.print(micros() - time_m);  // Display interval time (us)
   Serial.println("us");
   time_m = micros();
+}
+#endif
+
+#if LED_ENABLED
+// Initialize WS2812 LED using PIO
+void led_init()
+{
+  uint offset = pio_add_program(pio, &ws2812_program);
+  ws2812_program_init(pio, sm, offset, WS2812_PIN, 800000, false);
+}
+
+// Set LED to specific color (GRB format)
+void led_set_color(uint32_t color)
+{
+  pio_sm_put_blocking(pio, sm, color << 8u);
+}
+
+// Update LED based on current status with appropriate patterns
+void led_update()
+{
+  static uint32_t last_update = 0;
+  static bool blink_state = false;
+  uint32_t current_time = millis();
+
+  // Update at different rates based on status
+  uint32_t update_interval;
+  switch (led_status) {
+    case LED_STATUS_BOOT:
+      update_interval = 500;  // Slow blink during boot
+      break;
+    case LED_STATUS_USB_WAIT:
+      update_interval = 1000;  // Slow pulse waiting for CRSF
+      break;
+    case LED_STATUS_ACTIVE:
+      // Solid green, no blinking needed
+      if (current_time - led_update_time > 100) {
+        led_set_color(LED_COLOR_GREEN);
+        led_update_time = current_time;
+      }
+      return;
+    case LED_STATUS_STALE:
+      update_interval = 500;  // Medium blink for stale link
+      break;
+    case LED_STATUS_NO_SIGNAL:
+      update_interval = 1000;  // Slow blink for no signal
+      break;
+    case LED_STATUS_USB_SUSPENDED:
+      // Dim red, solid
+      if (current_time - led_update_time > 100) {
+        led_set_color(LED_COLOR_DIM_RED);
+        led_update_time = current_time;
+      }
+      return;
+    case LED_STATUS_FIRMWARE_UPDATE:
+      update_interval = 200;  // Fast pulse during firmware update
+      break;
+    case LED_STATUS_ERROR:
+      update_interval = 100;  // Very fast blink for errors
+      break;
+    default:
+      update_interval = 500;
+      break;
+  }
+
+  if (current_time - last_update >= update_interval) {
+    last_update = current_time;
+    blink_state = !blink_state;
+
+    uint32_t color;
+    switch (led_status) {
+      case LED_STATUS_BOOT:
+      case LED_STATUS_USB_WAIT:
+        color = blink_state ? LED_COLOR_YELLOW : LED_COLOR_OFF;
+        break;
+      case LED_STATUS_STALE:
+        color = blink_state ? LED_COLOR_ORANGE : LED_COLOR_OFF;
+        break;
+      case LED_STATUS_NO_SIGNAL:
+        color = blink_state ? LED_COLOR_RED : LED_COLOR_OFF;
+        break;
+      case LED_STATUS_FIRMWARE_UPDATE:
+        color = blink_state ? LED_COLOR_BLUE : LED_COLOR_CYAN;
+        break;
+      case LED_STATUS_ERROR:
+        color = blink_state ? LED_COLOR_RED : LED_COLOR_OFF;
+        break;
+      default:
+        color = LED_COLOR_OFF;
+        break;
+    }
+
+    led_set_color(color);
+  }
 }
 #endif

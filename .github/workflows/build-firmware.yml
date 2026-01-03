@@ -15,6 +15,7 @@ jobs:
         target:
           - XIAO_SAMD21
           - XIAO_RP2040
+          - WAVESHARE_RP2040
           - PICO
     
     steps:
@@ -103,7 +104,8 @@ jobs:
             
             ### Supported Targets:
             - XIAO_SAMD21
-            - XIAO_RP2040  
+            - XIAO_RP2040
+            - WAVESHARE_RP2040
             - PICO
             
             Download the appropriate firmware file for your board and flash it according to the instructions in the README.
