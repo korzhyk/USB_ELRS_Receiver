@@ -68,6 +68,12 @@ solder the wires onto the microcontroller!
 
 ![Built RP2040 CRSF](doc/xiao-rp2040-built-unit.png)
 
+### Waveshare RP2040 /w  BetaFPV Lite 2.4Ghz Receiver
+This is a complete setup with 3D printed case with pushable buttons and
+LED indicators.
+
+![Built Waveshare RP2040 CRSF](doc/waveshare-rp2040-pico.jpg)
+
 ## Building and Uploading
 You can either download a prebuilt binary from https://github.com/pfeerick/USB_ELRS_Receiver/releases/tag/latest, and install it to your device (for the RP2040/PICO targets it is a simple drag and drop / copy to firmware drive operation), or use the following notes as a guide on how to build the firmware locally, and upload it to your device.
 
