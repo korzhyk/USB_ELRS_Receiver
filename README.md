@@ -9,10 +9,12 @@ microcontroller and ELRS receiver.
  - Microcontroller:
    - [Seeed Studio XIAO SAMD21](https://www.seeedstudio.com/Seeeduino-XIAO-Arduino-Microcontroller-SAMD21-Cortex-M0+-p-4426.html)
    - [Seeed Studio XIAO RP2040](https://www.seeedstudio.com/XIAO-RP2040-v1-0-p-5026.html)
+   - [Waveshare RP2040-Zero](https://www.waveshare.com/rp2040-zero.htm)
  - ELRS Receiver:
    - [Happymodel EP2](http://www.happymodel.cn/index.php/2021/04/10/happymodel-2-4g-expresslrs-elrs-nano-series-receiver-module-pp-rx-ep1-rx-ep2-rx)
    - [Radiomaster RP2](https://www.radiomasterrc.com/products/rp2-expresslrs-2-4ghz-nano-receiver)
    - [iFlight ELRS Receiver](https://shop.iflight-rc.com/iFlight-ELRS-Receiver-Pro1757)
+   - [BetaFPV ELRS Lite Receiver](https://betafpv.com/collections/receivers/products/elrs-lite-receiver)
 
 Note: While the XIAO RP2040 is supported, I recommend the XIAO SAMD21, as 
 RP2040 platform support will take up some 2.5GB of space, so will take a while 
